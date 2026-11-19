@@ -23,7 +23,8 @@ select { font: inherit; padding: 6px; border: 1px solid #4a3f61; border-radius: 
 .export:hover { background: #ff7d5e; }
 #status { margin: 0; min-height: 1.2em; color: #b9b0c9; font-size: 13px; }
 .preview { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-width: 0; }
-.preview canvas { max-width: 100%; max-height: calc(100vh - 40px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #00e5ff; outline-offset: 2px; }
+.preview canvas { max-width: 100%; max-height: calc(100vh - 40px); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); background: #0d0a12; }
 body.shot-cover .controls { display: none; }
 body.shot-cover .app { padding: 0; }
 body.shot-cover .preview { width: 100vw; height: 100vh; }
