@@ -1,371 +1,249 @@
-// Vice Cover's poster painter: draws a GTA 6-style cover onto a canvas.
-// A Vice City sky (gradient + striped sun + palm silhouettes), a set of photo
-// panels on top, and bold condensed caption lettering below. All art is drawn
-// procedurally with canvas primitives — no Rockstar artwork, logo or font.
+// Vice Cover renderer: paints a GTA-style poster onto a canvas with the 2D API.
+// A poster is a sky strip (striped sun + palm silhouettes), a set of photo
+// panels in one of four layouts, a halftone band, and a big outlined title
+// over a subtitle. No assets, no network: every pixel comes from code.
 
-/** Colour grades. Each grade carries its sky ramp, sun colours, the tint it
- *  puts over photos, and the ink used for the caption and panel frames. */
 export const GRADES = {
   sunset: {
-    label: 'Sunset',
-    sky: [[0, '#1d0b3d'], [0.42, '#7b2d8b'], [0.72, '#ff6b4a'], [1, '#ffb347']],
-    sunTop: '#ffd76a',
-    sunBottom: '#ff5e62',
-    sunHalo: 'rgba(255, 120, 60, 0.55)',
-    washTop: 'rgba(255, 170, 90, 0.10)',
-    washBottom: 'rgba(255, 80, 40, 0.30)',
-    ink: '#ffffff',
-    inkEcho: '#ff5e62',
-    accent: '#ffb347',
-    frame: '#ffffff',
-    palmInk: 'rgba(20, 8, 30, 0.9)',
+    skyTop: '#1c0b33', skyMid: '#7a2a6d', skyBot: '#ff7e3d',
+    sunTop: '#ffd166', sunBot: '#ff5e62', ink: '#fff6e8', accent: '#ffd166',
+    gap: '#140824', tint: 'rgba(255, 110, 60, 0.14)', band: '#160a26',
   },
   neon: {
-    label: 'Neon Night',
-    sky: [[0, '#050214'], [0.5, '#1b0b3b'], [0.78, '#3b0f54'], [1, '#7a1e6e']],
-    sunTop: '#ff9de2',
-    sunBottom: '#ff2e88',
-    sunHalo: 'rgba(255, 46, 136, 0.6)',
-    washTop: 'rgba(0, 229, 255, 0.14)',
-    washBottom: 'rgba(255, 0, 128, 0.24)',
-    ink: '#e8fbff',
-    inkEcho: '#00e5ff',
-    accent: '#ff2e88',
-    frame: '#00e5ff',
-    palmInk: 'rgba(5, 2, 20, 0.92)',
+    skyTop: '#070418', skyMid: '#2a1a5e', skyBot: '#7c2d8e',
+    sunTop: '#67e8f9', sunBot: '#e879f9', ink: '#f4efff', accent: '#22d3ee',
+    gap: '#05030f', tint: 'rgba(90, 70, 255, 0.18)', band: '#0a0524',
   },
   noir: {
-    label: 'Noir',
-    sky: [[0, '#0c0c0e'], [0.55, '#232329'], [1, '#3d3d46']],
-    sunTop: '#e8e8e8',
-    sunBottom: '#9a9aa2',
-    sunHalo: 'rgba(200, 200, 210, 0.25)',
-    washTop: 'rgba(255, 255, 255, 0.05)',
-    washBottom: 'rgba(0, 0, 0, 0.30)',
-    ink: '#f5f5f5',
-    inkEcho: '#d92626',
-    accent: '#d92626',
-    frame: '#e8e8e8',
-    palmInk: 'rgba(0, 0, 0, 0.9)',
+    skyTop: '#0a0a0a', skyMid: '#333333', skyBot: '#8a8a8a',
+    sunTop: '#fafafa', sunBot: '#8f8f8f', ink: '#fafafa', accent: '#e11d2e',
+    gap: '#000000', tint: 'rgba(0, 0, 0, 0.28)', band: '#0d0d0d',
   },
 };
 
-/** How the poster splits its photo area into panels. */
-export const LAYOUTS = {
-  hero: { label: 'Hero', panels: 1 },
-  split: { label: 'Split', panels: 2 },
-  triptych: { label: 'Triptych', panels: 3 },
-  quad: { label: 'Quad', panels: 4 },
-};
+export const LAYOUTS = ['triptych', 'split', 'hero', 'stack'];
 
-/** Export sizes. */
 export const SIZES = {
-  '1080x1080': { w: 1080, h: 1080, label: '1080 × 1080 square' },
-  '1080x1350': { w: 1080, h: 1350, label: '1080 × 1350 portrait' },
-  '1920x1080': { w: 1920, h: 1080, label: '1920 × 1080 wide' },
+  '1080x1080': [1080, 1080],
+  '1080x1350': [1080, 1350],
+  '1920x1080': [1920, 1080],
 };
 
-/** Panel rectangles for a layout. Panels occupy the top ~70% of the poster,
- *  inside a margin, with a small gutter between them. */
-export function layoutPanels(layout, w, h) {
-  const m = Math.round(w * 0.012);
-  const g = Math.round(w * 0.008);
-  const y = m;
-  const ph = Math.round(h * 0.7) - m;
-  const pw = w - 2 * m;
-  const box = (x, y2, bw, bh) => ({ x, y: y2, w: bw, h: bh });
-  if (layout === 'split') {
-    const cw = Math.round((pw - g) / 2);
-    return [box(m, y, cw, ph), box(m + cw + g, y, pw - cw - g, ph)];
-  }
+// Geometry of one poster: sky strip on top, photo panels in the middle,
+// title band at the bottom. Returns the panels as rects with a focus point
+// (where the photo's centre should sit inside each panel).
+export function posterGeometry(w, h, layout) {
+  const skyH = Math.round(h * 0.16);
+  const bandH = Math.round(h * 0.2);
+  const top = skyH;
+  const bottom = h - bandH;
+  const gap = Math.max(4, Math.round(w * 0.012));
+  const area = { x: 0, y: top, w, h: bottom - top };
+  let panels = [];
   if (layout === 'triptych') {
-    const side = Math.round((pw - 2 * g) * 0.28);
-    const mid = pw - 2 * side - 2 * g;
-    return [
-      box(m, y, side, ph),
-      box(m + side + g, y, mid, ph),
-      box(m + side + g + mid + g, y, side, ph),
+    const pw = (area.w - gap * 2) / 3;
+    panels = [0, 1, 2].map((i) => ({
+      x: area.x + i * (pw + gap), y: area.y, w: pw, h: area.h,
+      fx: [0.22, 0.5, 0.78][i], fy: 0.5,
+    }));
+  } else if (layout === 'split') {
+    const leftW = area.w * 0.62 - gap / 2;
+    const rightX = area.x + leftW + gap;
+    const rightW = area.w - leftW - gap;
+    const rh = (area.h - gap) / 2;
+    panels = [
+      { x: area.x, y: area.y, w: leftW, h: area.h, fx: 0.5, fy: 0.5 },
+      { x: rightX, y: area.y, w: rightW, h: rh, fx: 0.72, fy: 0.42 },
+      { x: rightX, y: area.y + rh + gap, w: rightW, h: rh, fx: 0.28, fy: 0.58 },
     ];
-  }
-  if (layout === 'quad') {
-    const cw = Math.round((pw - g) / 2);
-    const ch = Math.round((ph - g) / 2);
-    return [
-      box(m, y, cw, ch),
-      box(m + cw + g, y, pw - cw - g, ch),
-      box(m, y + ch + g, cw, ph - ch - g),
-      box(m + cw + g, y + ch + g, pw - cw - g, ph - ch - g),
+  } else if (layout === 'stack') {
+    const th = area.h * 0.58 - gap / 2;
+    panels = [
+      { x: area.x, y: area.y, w: area.w, h: th, fx: 0.5, fy: 0.35 },
+      { x: area.x, y: area.y + th + gap, w: area.w, h: area.h - th - gap, fx: 0.5, fy: 0.65 },
     ];
+  } else {
+    panels = [{ x: area.x, y: area.y, w: area.w, h: area.h, fx: 0.5, fy: 0.5 }];
   }
-  return [box(m, y, pw, ph)];
+  return { skyH, bandH, panels, gap };
 }
 
-/** Shrinks `size` until `text` fits `maxWidth` in the condensed title face. */
-function fitTitle(ctx, text, size, maxWidth) {
-  let s = size;
-  for (;;) {
-    ctx.font = `900 ${s}px 'Arial Black', Impact, 'Arial Narrow', sans-serif`;
-    if (ctx.measureText(text).width * 0.84 <= maxWidth || s <= 12) return s;
-    s = Math.max(12, s - 4);
-  }
+function coverDrawRect(img, box, fx, fy, zoom, panX, panY) {
+  const scale = Math.max(box.w / img.naturalWidth, box.h / img.naturalHeight) * zoom;
+  const dw = img.naturalWidth * scale;
+  const dh = img.naturalHeight * scale;
+  return {
+    dx: box.x + (box.w - dw) * fx + panX * box.w,
+    dy: box.y + (box.h - dh) * fy + panY * box.h,
+    dw, dh,
+  };
 }
 
-/** The big caption: slanted, squashed, dark-outlined capitals with a coloured
- *  echo offset down-right. `baseline` is where the text sits. */
-export function paintTitle(ctx, text, cx, baseline, size, maxWidth, grade) {
-  const clean = (text || '').trim().toUpperCase();
-  if (!clean) return 0;
-  const s = fitTitle(ctx, clean, size, maxWidth);
-  ctx.save();
-  ctx.translate(cx, baseline);
-  ctx.transform(0.84, 0, -0.1, 1, 0, 0);
-  ctx.font = `900 ${s}px 'Arial Black', Impact, 'Arial Narrow', sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.lineJoin = 'round';
-  ctx.fillStyle = grade.inkEcho;
-  ctx.fillText(clean, s * 0.05, s * 0.06);
-  ctx.lineWidth = s * 0.1;
-  ctx.strokeStyle = '#0d0a12';
-  ctx.strokeText(clean, 0, 0);
-  ctx.fillStyle = grade.ink;
-  ctx.fillText(clean, 0, 0);
-  ctx.restore();
-  return s;
+// The retro slatted sun: a disc with horizontal gaps cut out of its lower
+// half, drawn on a scratch canvas so the gaps stay transparent.
+function stripedSun(diameter, top, bottom) {
+  const c = document.createElement('canvas');
+  c.width = diameter;
+  c.height = diameter;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, diameter);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bottom);
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(diameter / 2, diameter / 2, diameter / 2, 0, Math.PI * 2);
+  g.fill();
+  g.globalCompositeOperation = 'destination-out';
+  let y = diameter * 0.52;
+  let cut = diameter * 0.035;
+  while (y < diameter) {
+    g.fillRect(0, y, diameter, cut);
+    y += cut * 2.6;
+    cut *= 1.5;
+  }
+  return c;
 }
 
-/** The subtitle: wide-spaced capitals with a short accent bar on each side. */
-export function paintSubtitle(ctx, text, cx, y, size, maxWidth, grade) {
-  const clean = (text || '').trim().toUpperCase();
-  if (!clean) return;
-  let s = size;
-  const face = () => `700 ${s}px 'Arial Narrow', 'Helvetica Neue', sans-serif`;
-  ctx.font = face();
-  try { ctx.letterSpacing = `${Math.round(s * 0.35)}px`; } catch { /* older canvas */ }
-  while (ctx.measureText(clean).width > maxWidth && s > 10) {
-    s -= 1;
-    ctx.font = face();
+// One palm silhouette: a leaning trunk and a crown of drooping fronds.
+function palm(g, x, y, s, color) {
+  g.strokeStyle = color;
+  g.fillStyle = color;
+  g.lineCap = 'round';
+  g.lineWidth = Math.max(2, s * 0.07);
+  g.beginPath();
+  g.moveTo(x, y);
+  g.quadraticCurveTo(x + s * 0.1, y - s * 0.55, x + s * 0.28, y - s);
+  g.stroke();
+  const cx = x + s * 0.28;
+  const cy = y - s;
+  g.lineWidth = Math.max(1.5, s * 0.045);
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI * (0.08 + i * 0.16);
+    const ex = cx + Math.cos(a) * s * 0.55;
+    const ey = cy + Math.sin(a) * s * 0.3 + s * 0.22;
+    const mx = cx + Math.cos(a) * s * 0.3;
+    const my = cy - s * 0.08;
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.quadraticCurveTo(mx, my, ex, ey);
+    g.stroke();
   }
-  const tw = ctx.measureText(clean).width;
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = grade.accent;
-  ctx.fillRect(cx - tw / 2 - s * 2.2, y - s * 0.08, s * 1.4, s * 0.16);
-  ctx.fillRect(cx + tw / 2 + s * 0.8, y - s * 0.08, s * 1.4, s * 0.16);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(clean, cx, y);
-  ctx.restore();
-  try { ctx.letterSpacing = '0px'; } catch { /* older canvas */ }
+  g.beginPath();
+  g.arc(cx, cy, s * 0.07, 0, Math.PI * 2);
+  g.fill();
 }
 
-/** A sun disc with slats cut through its lower half, painted offscreen so the
- *  glow can be applied to the whole disc at once. */
-function paintSun(ctx, cx, cy, r, grade) {
-  const side = Math.ceil(r * 2 + 4);
-  const off = document.createElement('canvas');
-  off.width = off.height = side;
-  const o = off.getContext('2d');
-  const g = o.createLinearGradient(0, 0, 0, side);
-  g.addColorStop(0, grade.sunTop);
-  g.addColorStop(1, grade.sunBottom);
-  o.fillStyle = g;
-  o.beginPath();
-  o.arc(side / 2, side / 2, r, 0, Math.PI * 2);
-  o.fill();
-  o.globalCompositeOperation = 'destination-out';
-  let y = side * 0.52;
-  let gap = Math.max(2, r * 0.03);
-  while (y < side) {
-    o.fillRect(0, y, side, gap);
-    y += gap + Math.max(3, r * 0.06);
-    gap *= 1.5;
-  }
-  ctx.save();
-  ctx.shadowColor = grade.sunHalo;
-  ctx.shadowBlur = r * 0.6;
-  ctx.drawImage(off, cx - side / 2, cy - side / 2);
-  ctx.restore();
-}
-
-/** One palm silhouette: a curved trunk and seven drooping fronds. */
-function paintPalm(ctx, x, y, s, color) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineCap = 'round';
-  ctx.lineWidth = Math.max(2, s * 0.05);
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.quadraticCurveTo(x + s * 0.06, y - s * 0.55, x - s * 0.1, y - s * 0.95);
-  ctx.stroke();
-  const topX = x - s * 0.1;
-  const topY = y - s * 0.95;
-  ctx.lineWidth = Math.max(2, s * 0.045);
-  const fronds = [
-    [-0.55, -0.28, -0.95, -0.05], [-0.3, -0.5, -0.62, -0.42],
-    [0.05, -0.55, 0.1, -0.62], [0.35, -0.42, 0.72, -0.5],
-    [0.55, -0.18, 0.95, -0.12], [-0.5, -0.02, -0.85, 0.22],
-    [0.45, -0.02, 0.8, 0.28],
-  ];
-  for (const [c1x, c1y, ex, ey] of fronds) {
-    ctx.beginPath();
-    ctx.moveTo(topX, topY);
-    ctx.quadraticCurveTo(topX + c1x * s, topY + c1y * s, topX + ex * s, topY + ey * s);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/** A synthwave perspective grid across a band at the poster's foot. */
-function paintGrid(ctx, y0, y1, w, color) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.5;
-  ctx.lineWidth = Math.max(1, w * 0.001);
-  const cx = w / 2;
-  for (let i = -8; i <= 8; i++) {
-    ctx.beginPath();
-    ctx.moveTo(cx + i * w * 0.06, y0);
-    ctx.lineTo(cx + i * w * 0.28, y1);
-    ctx.stroke();
-  }
-  let y = y0;
-  let step = (y1 - y0) * 0.08;
-  while (y < y1) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-    y += step;
-    step *= 1.45;
-  }
-  ctx.restore();
-}
-
-/** Halftone dots over a rectangle, growing toward its bottom edge. */
-function paintHalftone(ctx, rect, scale, color) {
-  const spacing = Math.max(7, 10 * scale);
-  const maxR = 2.6 * scale;
-  ctx.save();
-  ctx.fillStyle = color;
-  for (let row = 0, y = rect.y + spacing / 2; y < rect.y + rect.h; y += spacing, row++) {
-    const t = (y - rect.y) / rect.h;
-    if (t < 0.25) continue;
-    const r = maxR * (t - 0.25) * (t - 0.25) * 1.78;
-    if (r < 0.5) continue;
-    const offset = (row % 2) * spacing / 2;
-    for (let x = rect.x + spacing / 2 + offset; x < rect.x + rect.w; x += spacing) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
+// A field of halftone dots whose size swells and fades across the band.
+function halftone(g, x, y, w, h, color) {
+  const step = Math.max(10, Math.round(w / 72));
+  g.fillStyle = color;
+  for (let row = 0; row * step < h; row++) {
+    for (let col = 0; col * step < w; col++) {
+      const t = row / Math.max(1, Math.floor(h / step));
+      const r = step * 0.16 * (0.4 + Math.sin(t * Math.PI) * 0.9);
+      g.beginPath();
+      g.arc(x + col * step + step / 2, y + row * step + step / 2, r, 0, Math.PI * 2);
+      g.fill();
     }
   }
-  ctx.restore();
 }
 
-/** Cover-fits one photo into a panel, with zoom and pan (0..1 each way). */
-function paintPhoto(ctx, photo, rect, zoom, panX, panY) {
-  const scale = Math.max(rect.w / photo.naturalWidth, rect.h / photo.naturalHeight) * zoom;
-  const pw = photo.naturalWidth * scale;
-  const ph = photo.naturalHeight * scale;
-  ctx.drawImage(photo, rect.x + (rect.w - pw) * panX, rect.y + (rect.h - ph) * panY, pw, ph);
-}
-
-/** The grade's wash over a panel photo; noir also drains the colour. */
-function paintWash(ctx, rect, grade) {
-  const g = ctx.createLinearGradient(0, rect.y, 0, rect.y + rect.h);
-  g.addColorStop(0, grade.washTop);
-  g.addColorStop(1, grade.washBottom);
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  if (grade === GRADES.noir) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'saturation';
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.restore();
+function fitFont(g, text, maxWidth, startSize) {
+  let size = startSize;
+  g.font = `900 ${size}px 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif`;
+  while (size > 14 && g.measureText(text).width > maxWidth) {
+    size -= 2;
+    g.font = `900 ${size}px 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif`;
   }
+  return size;
 }
 
-/** Diagonal stripes where a panel has no photo yet. */
-function paintEmpty(ctx, rect, grade) {
-  const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-  g.addColorStop(0, grade.sky[0][1]);
-  g.addColorStop(1, grade.sky[grade.sky.length - 1][1]);
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = Math.max(2, rect.w * 0.004);
-  for (let x = -rect.h; x < rect.w + rect.h; x += rect.w * 0.09) {
-    ctx.beginPath();
-    ctx.moveTo(rect.x + x, rect.y + rect.h);
-    ctx.lineTo(rect.x + x + rect.h, rect.y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/** Paints the whole poster. `state` holds size, layout, grade, title,
- *  subtitle, halftone and panels: [{ photo, zoom, panX, panY }]. */
-export function drawPoster(canvas, state) {
-  const ctx = canvas.getContext('2d');
-  const { width: w, height: h } = canvas;
-  const scale = w / 1080;
+// Draws the whole poster. `state` holds the photo (an image or null), the
+// title and subtitle, the grade and layout names, the size key, and the
+// crop controls (zoom, panX, panY as fractions of the panel).
+export function renderPoster(canvas, state) {
+  const [w, h] = SIZES[state.size] ?? SIZES['1080x1080'];
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext('2d');
   const grade = GRADES[state.grade] ?? GRADES.sunset;
+  const geo = posterGeometry(w, h, state.layout);
+  const unit = w / 1080;
 
-  const sky = ctx.createLinearGradient(0, 0, 0, h);
-  for (const [stop, color] of grade.sky) sky.addColorStop(stop, color);
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, h);
+  // Sky strip with the grade's gradient.
+  const sky = g.createLinearGradient(0, 0, 0, geo.skyH);
+  sky.addColorStop(0, grade.skyTop);
+  sky.addColorStop(0.55, grade.skyMid);
+  sky.addColorStop(1, grade.skyBot);
+  g.fillStyle = sky;
+  g.fillRect(0, 0, w, geo.skyH);
 
-  const bandY = Math.round(h * 0.72);
-  const bandH = h - bandY;
-  paintSun(ctx, w * 0.5, bandY + bandH * 0.3, Math.min(w, h) * 0.15, grade);
-  if (state.grade === 'neon') paintGrid(ctx, bandY + bandH * 0.55, h, w, grade.accent);
-  paintPalm(ctx, w * 0.045, h * 0.995, bandH * 0.85, grade.palmInk);
-  paintPalm(ctx, w * 0.955, h * 0.995, bandH * 0.78, grade.palmInk);
+  // Striped sun, sized to sit fully inside the sky strip so its slats show;
+  // palms, left of it.
+  const sunD = Math.round(geo.skyH * 0.88);
+  const sun = stripedSun(sunD, grade.sunTop, grade.sunBot);
+  g.drawImage(sun, w - sunD * 1.15, geo.skyH * 0.06, sunD, sunD);
+  g.fillStyle = grade.gap;
+  palm(g, w * 0.06, geo.skyH * 0.98, geo.skyH * 0.95, grade.gap);
+  palm(g, w * 0.16, geo.skyH * 0.98, geo.skyH * 0.62, grade.gap);
 
-  const rects = layoutPanels(state.layout, w, h);
-  const bw = Math.max(2, Math.round(5 * scale));
-  for (let i = 0; i < rects.length; i++) {
-    const rect = rects[i];
-    const panel = state.panels[i] ?? {};
-    const img = panel.photo?.img ?? panel.photo ?? null;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
-    ctx.clip();
-    if (img) {
-      paintPhoto(ctx, img, rect, panel.zoom ?? 1, panel.panX ?? 0.5, panel.panY ?? 0.5);
-      paintWash(ctx, rect, grade);
+  // Photo panels, each a cover-cropped view of the same photo.
+  for (const panel of geo.panels) {
+    g.save();
+    g.beginPath();
+    g.rect(panel.x, panel.y, panel.w, panel.h);
+    g.clip();
+    if (state.photo) {
+      if (state.grade === 'noir') g.filter = 'grayscale(1) contrast(1.12)';
+      const r = coverDrawRect(state.photo, panel, panel.fx, panel.fy, state.zoom, state.panX, state.panY);
+      g.drawImage(state.photo, r.dx, r.dy, r.dw, r.dh);
+      g.filter = 'none';
     } else {
-      paintEmpty(ctx, rect, grade);
+      g.fillStyle = grade.band;
+      g.fillRect(panel.x, panel.y, panel.w, panel.h);
     }
-    if (state.halftone) paintHalftone(ctx, rect, scale, 'rgba(0,0,0,0.45)');
-    const shade = ctx.createLinearGradient(0, rect.y + rect.h * 0.7, 0, rect.y + rect.h);
-    shade.addColorStop(0, 'rgba(0,0,0,0)');
-    shade.addColorStop(1, 'rgba(0,0,0,0.35)');
-    ctx.fillStyle = shade;
-    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.restore();
-    ctx.save();
-    if (state.grade === 'neon') {
-      ctx.shadowColor = grade.frame;
-      ctx.shadowBlur = 14 * scale;
-    }
-    ctx.lineWidth = bw;
-    ctx.strokeStyle = grade.frame;
-    ctx.strokeRect(rect.x + bw / 2, rect.y + bw / 2, rect.w - bw, rect.h - bw);
-    ctx.restore();
+    g.fillStyle = grade.tint;
+    g.fillRect(panel.x, panel.y, panel.w, panel.h);
+    g.restore();
+    g.fillStyle = grade.gap;
+    g.fillRect(panel.x, panel.y, panel.w, Math.max(2, 3 * unit));
   }
 
-  paintTitle(ctx, state.title, w / 2, bandY + bandH * 0.52, Math.round(h * 0.115), w * 0.92, grade);
-  paintSubtitle(ctx, state.subtitle, w / 2, bandY + bandH * 0.82, Math.round(h * 0.032), w * 0.8, grade);
+  // Halftone strip where the panels meet the title band.
+  g.save();
+  g.globalAlpha = 0.5;
+  halftone(g, 0, h - geo.bandH - 18 * unit, w, 18 * unit, grade.accent);
+  g.restore();
 
-  const vig = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.45, w / 2, h / 2, Math.max(w, h) * 0.75);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.28)');
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, w, h);
+  // Title band: dark ground, accent rule, huge outlined title, subtitle.
+  const bandY = h - geo.bandH;
+  g.fillStyle = grade.band;
+  g.fillRect(0, bandY, w, geo.bandH);
+  g.fillStyle = grade.accent;
+  g.fillRect(0, bandY, w, Math.max(3, 5 * unit));
+
+  const title = (state.title || '').trim().toUpperCase();
+  if (title) {
+    const size = fitFont(g, title, w * 0.92, geo.bandH * 0.52);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.lineWidth = Math.max(2, size * 0.07);
+    g.strokeStyle = grade.gap;
+    g.fillStyle = grade.ink;
+    const ty = bandY + geo.bandH * 0.42;
+    g.strokeText(title, w / 2, ty);
+    g.fillText(title, w / 2, ty);
+  }
+  const sub = (state.subtitle || '').trim().toUpperCase();
+  if (sub) {
+    const size = Math.max(12, geo.bandH * 0.15);
+    g.font = `700 ${size}px 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif`;
+    try { g.letterSpacing = `${Math.round(size * 0.35)}px`; } catch { /* older canvas: no tracking */ }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = grade.accent;
+    g.fillText(sub, w / 2, bandY + geo.bandH * 0.82);
+    try { g.letterSpacing = '0px'; } catch { /* reset */ }
+  }
 }
