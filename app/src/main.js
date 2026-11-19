@@ -1,9 +1,9 @@
-// Wires the Vice Cover editor: pick a size, preset and panel layout, load photos
+// Wires the Vice Cover editor: pick a size, grade and panel layout, load photos
 // into the panels, tune each panel's crop, edit the caption, and export the
 // poster as a PNG. A `?shot=` query sets up a fixed scene for a screenshot
 // instead (see shots.js). Photos are read on this machine only, never uploaded.
 
-import { drawCover, LAYOUTS, PRESETS, SIZES } from './cover.js';
+import { drawPoster, LAYOUTS, GRADES, SIZES } from './cover.js';
 import { runShot } from './shots.js';
 
 const canvas = document.getElementById('cover');
@@ -14,7 +14,7 @@ const panelRows = document.getElementById('panelRows');
 const state = {
   size: '1920x1080',
   layout: 'triptych',
-  preset: 'sunset',
+  grade: 'sunset',
   title: 'SUNSET HEIST',
   subtitle: 'VICE CITY • 2026',
   halftone: true,
@@ -25,29 +25,31 @@ const state = {
 const photos = [];
 let activePanel = 0;
 
-function defaultPanels(layout) {
+/** Fresh panels for a layout, seeded with the samples in rotation. */
+function freshPanels(layout) {
   const count = LAYOUTS[layout].panels;
-  const samples = [0, 1, 0, 1];
+  const seed = [0, 1, 0, 1];
   return Array.from({ length: count }, (_, i) => ({
-    photo: photos[samples[i]] ?? null,
+    photo: photos[seed[i]] ?? null,
     zoom: 1,
     panX: 0.5,
     panY: 0.5,
   }));
 }
 
+/** Grows or trims the panel list to match the current layout. */
 function syncPanels() {
   const want = LAYOUTS[state.layout].panels;
-  const samples = [0, 1, 0, 1];
+  const seed = [0, 1, 0, 1];
   while (state.panels.length < want) {
     const i = state.panels.length;
-    state.panels.push({ photo: photos[samples[i]] ?? null, zoom: 1, panX: 0.5, panY: 0.5 });
+    state.panels.push({ photo: photos[seed[i]] ?? null, zoom: 1, panX: 0.5, panY: 0.5 });
   }
   state.panels.length = want;
   if (activePanel >= want) activePanel = 0;
 }
 
-/** Loads an image from a URL, resolving to the image once it can be drawn. */
+/** Loads an image from a URL, resolving once it can be drawn. */
 export function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -57,32 +59,30 @@ export function loadImage(url) {
   });
 }
 
-/** Renders the poster at export size into an offscreen canvas, then scales
- *  it into the visible preview so the preview is exactly what exports. */
+/** Renders the poster at export size into an offscreen canvas, then copies it
+ *  into the visible preview, so the preview is exactly what exports. */
 function render() {
   const { w, h } = SIZES[state.size];
   const off = document.createElement('canvas');
   off.width = w;
   off.height = h;
-  drawCover(off, { ...state, panels: state.panels.map((p) => ({ ...p })) });
+  drawPoster(off, { ...state, panels: state.panels.map((p) => ({ ...p })) });
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(off, 0, 0);
+  canvas.getContext('2d').drawImage(off, 0, 0);
   return off;
 }
 
+/** Re-renders and marks the pressed buttons as active. */
 function renderAndMark() {
   render();
-  document.querySelectorAll('[data-size]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.size === state.size));
-  document.querySelectorAll('[data-preset]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.preset === state.preset));
-  document.querySelectorAll('[data-layout]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.layout === state.layout));
+  for (const [attr, key] of [['size', 'size'], ['grade', 'grade'], ['layout', 'layout']]) {
+    document.querySelectorAll(`[data-${attr}]`).forEach((b) =>
+      b.classList.toggle('on', b.dataset[attr] === state[key]));
+  }
 }
 
-/** One control row per panel: which photo it shows, and its crop. */
+/** One control row per panel: which photo it shows, and its crop sliders. */
 function buildPanelRows() {
   panelRows.innerHTML = '';
   state.panels.forEach((panel, i) => {
@@ -117,17 +117,15 @@ function buildPanelRows() {
   });
 }
 
-function bindButtons(attr, apply) {
+/** Binds a group of data-* buttons to one state field. */
+function bindGroup(attr, apply) {
   document.querySelectorAll(`[data-${attr}]`).forEach((b) =>
-    b.addEventListener('click', () => {
-      apply(b.dataset[attr]);
-      renderAndMark();
-    }));
+    b.addEventListener('click', () => { apply(b.dataset[attr]); renderAndMark(); }));
 }
 
-bindButtons('size', (v) => { state.size = v; });
-bindButtons('preset', (v) => { state.preset = v; });
-bindButtons('layout', (v) => {
+bindGroup('size', (v) => { state.size = v; });
+bindGroup('grade', (v) => { state.grade = v; });
+bindGroup('layout', (v) => {
   state.layout = v;
   syncPanels();
   buildPanelRows();
@@ -181,7 +179,7 @@ export async function startEditor() {
   const boulevard = await loadImage('samples/boulevard.jpg');
   photos.push({ name: 'Pier at dusk', img: pier });
   photos.push({ name: 'Boulevard', img: boulevard });
-  state.panels = defaultPanels(state.layout);
+  state.panels = freshPanels(state.layout);
   buildPanelRows();
   renderAndMark();
 }
