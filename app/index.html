@@ -3,20 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cover Snap</title>
+<title>Vice Cover — GTA 6-style cover art maker</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <main class="app">
-  <section class="controls">
-    <h1>Cover Snap</h1>
-    <p>A photo and a caption, made into a square cover.</p>
-    <label>Photo <input id="photo" type="file" accept="image/*"></label>
-    <label>Caption <input id="caption" type="text" maxlength="40" value="Sunset Heist"></label>
-    <button id="export" type="button">Export PNG 1080 x 1080</button>
+  <section class="controls" aria-label="Cover editor">
+    <h1>VICE COVER</h1>
+    <p class="tagline">Your photo, your caption — a Vice City poster in three steps.</p>
+
+    <div class="group">
+      <h2>1 · Size</h2>
+      <div class="row">
+        <button type="button" data-size="1080x1080">1080 × 1080</button>
+        <button type="button" data-size="1080x1350">1080 × 1350</button>
+        <button type="button" data-size="1920x1080">1920 × 1080</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>2 · Style</h2>
+      <div class="row">
+        <button type="button" data-preset="sunset">Sunset</button>
+        <button type="button" data-preset="neon">Neon Night</button>
+        <button type="button" data-preset="noir">Noir</button>
+      </div>
+      <div class="row">
+        <button type="button" data-layout="hero">Hero</button>
+        <button type="button" data-layout="split">Split</button>
+        <button type="button" data-layout="triptych">Triptych</button>
+        <button type="button" data-layout="quad">Quad</button>
+      </div>
+      <label class="check"><input id="halftone" type="checkbox" checked> Halftone texture</label>
+    </div>
+
+    <div class="group">
+      <h2>3 · Caption</h2>
+      <label>Title <input id="title" type="text" maxlength="30" value="SUNSET HEIST"></label>
+      <label>Subtitle <input id="subtitle" type="text" maxlength="40" value="VICE CITY • 2026"></label>
+    </div>
+
+    <div class="group">
+      <h2>Photos &amp; crop</h2>
+      <label class="upload">Upload a photo <input id="upload" type="file" accept="image/*"></label>
+      <p class="hint">Click a panel tab, then pick its photo and drag the crop sliders. Samples: Pier at dusk, Boulevard.</p>
+      <div id="panelRows"></div>
+    </div>
+
+    <button id="export" type="button" class="export">Export PNG</button>
     <p id="status" role="status"></p>
   </section>
-  <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
+  <section class="preview" aria-label="Cover preview">
+    <canvas id="cover" width="1920" height="1080"></canvas>
+  </section>
 </main>
 <script type="module" src="./src/main.js"></script>
 </body>
