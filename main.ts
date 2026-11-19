@@ -11,6 +11,10 @@
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
+// Vice Cover — a GTA 6-style cover art maker for gta6-cover-art-01: the app
+// in app/ turns a photo and a caption into a multi-panel Vice City poster
+// (sunset/neon/noir grades, striped sun, palm silhouettes, halftone texture)
+// and exports it as a PNG in 1080x1080, 1080x1350 or 1920x1080.
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
