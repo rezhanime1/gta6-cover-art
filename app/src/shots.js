@@ -1,6 +1,6 @@
 // Fixed scenes for screenshots: ?shot=editor shows the page with a sample photo
 // loaded; ?shot=cover shows the cover alone, filling the viewport. The query
-// picks the photo, caption, subtitle, preset, size and layout, then the scene
+// picks the photo, caption, subtitle, grade, size and layout, then the scene
 // paints and window.__shotReady is set. `api` is the editor's live state and
 // helpers, passed in from main.js.
 
@@ -16,7 +16,7 @@ export async function runShot(shot, query, api) {
 
   const wanted = query.get('photo') ?? 'pier';
   const pick = wanted === 'boulevard' ? 1 : 0;
-  state.preset = query.get('preset') ?? 'sunset';
+  state.grade = query.get('preset') ?? 'sunset';
   state.layout = query.get('layout') ?? 'triptych';
   state.size = query.get('size') ?? '1920x1080';
   state.title = query.get('caption') ?? 'Sunset Heist';
